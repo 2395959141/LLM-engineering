@@ -125,7 +125,7 @@ def write_model(model_path, input_base_path, model_size, tokenizer_path=None, sa
 
     print(f"Fetching all parameters from the checkpoint at {input_base_path}.")
     # Load weights
-    if num_shards == 1:
+    if num_shards == 1: #*  未分片的情况
         # Not sharded
         # (The sharded implementation would also work, but this is simpler.)
         loaded = torch.load(os.path.join(input_base_path, "consolidated.00.pth"), map_location="cpu")

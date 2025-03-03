@@ -4,9 +4,9 @@
 #include <math.h>
 #include <assert.h>
 #include <stdio.h>
-// attention_score,    (batch_size, head_num, q_length, k_length), softmax output.
-// qk,                 (batch_size, head_num, q_length, k_length), QK^T.
-// attention_mask,     (batch_size, q_length, k_length), attention mask.
+//* attention_score,    (batch_size, head_num, q_length, k_length), softmax output.
+//* qk,                 (batch_size, head_num, q_length, k_length), QK^T.
+//* attention_mask,     (batch_size, q_length, k_length), attention mask.
 template <typename T>
 struct SumOp
 {
@@ -78,11 +78,17 @@ __global__ void ScaleMaskAndSoftmax_float(T *attn_score,
         // (RussWong)note: 面对这种一个block一个thread需要处理多行多列的时候，数据尽量用数组存储，计算出每个block和thread要处理几行几列
         T data[NUMS_PER_THREAD_PER_ROW]; 
         for (int col_start = 0; col_start < NUMS_PER_THREAD_PER_ROW; col_start++)
-        {
-            qk_offset = batch_id * head_nums * q_len * k_len + head_id * q_len * k_len + row_start * k_len + col_start * blockDim.x + threadIdx.x;
+        {   
+            //! qk_offset指的是当前 block里的当前的 thread处理的 QK的偏移
+            qk_offset = batch_id * head_nums * q_len * k_len //* batch偏移
+                        + head_id * q_len * k_len            //* head偏移
+                        + row_start * k_len                  //* query行起始位置
+                        + col_start * blockDim.x + threadIdx.x; //* key列的起始位置
             qk_data = qk[qk_offset];
 
-            mask_offset = batch_id * q_len * k_len + row_start * k_len + col_start * blockDim.x + threadIdx.x;
+            mask_offset = batch_id * q_len * k_len 
+                        + row_start * k_len 
+                        + col_start * blockDim.x + threadIdx.x;
             mask_data = mask[mask_offset];
             // https://www.zhihu.com/question/472323371/answer/2001223766这
             data[col_start] = scale * qk_data + (1 - mask_data) * (-10000.0f);
@@ -101,8 +107,13 @@ __global__ void ScaleMaskAndSoftmax_float(T *attn_score,
         // for(int col_start = threadIdx.x; col_start < k_len; col_start += blockDim.x){
         for (int col_start = 0; col_start < NUMS_PER_THREAD_PER_ROW; col_start++)
         {
-            qk_offset = batch_id * head_nums * q_len * k_len + head_id * q_len * k_len + row_start * k_len + col_start * blockDim.x + threadIdx.x;
-            mask_offset = batch_id * q_len * k_len + row_start * k_len + col_start * blockDim.x + threadIdx.x;
+            qk_offset = batch_id * head_nums * q_len * k_len 
+                        + head_id * q_len * k_len 
+                        + row_start * k_len 
+                        + col_start * blockDim.x + threadIdx.x;
+            mask_offset = batch_id * q_len * k_len 
+                        + row_start * k_len 
+                        + col_start * blockDim.x + threadIdx.x;
             data[col_start] = expf(data[col_start] - s_max);
             thread_sum += data[col_start];
             // debug info,printf("after, data[%d]=%f, thread_sum = %f\n",col_start, data[col_start], thread_sum);

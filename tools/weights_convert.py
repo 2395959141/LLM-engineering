@@ -16,6 +16,7 @@ def get_weight_data_type(data_type):
     else:
         assert False, f"Invalid weight data type {data_type}"
 
+#!  Hugging Face Transformers 库中的 Llama 模型权重转换为特定格式的二进制文件
 if __name__ == "__main__":     
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('-saved_dir', '-o', type=str, help='file name of output file', required=True)

@@ -2,7 +2,7 @@
 #include "src/utils/cuda_debug_utils.cuh"
 #include <iostream>
 // if MQA or GQA, we should use this transpose to broadcast kv head num to q head num
-//[num layers, bs, kv head num, max_seq_len, head size]=>[bs, q head num, max_k_len, head size]
+//*[num layers, bs, kv head num, max_seq_len, head size]=>[bs, q head num, max_k_len, head size]
 // context_length.shape=[bs]
 // bugs1: when k_dst.shape = [1,32,13,128],现在这个k_dst以13*128为单位循环第一个13*128的值
 // solu1: launcher函数里面获取kv cache的shape出错，需要仔细核对各个TensorWrapper的shape再通过正确索引获取
@@ -22,17 +22,17 @@ __global__ void repeat_value_cache(T *v_dst,
 
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-    const auto val_src = v_src + layer_offset;
+    const auto val_src = v_src + layer_offset; //! 注意这里还是 T* 指针类型
     const auto val_dst = v_dst;
 
     const auto seq_len = context_length[batch_id];
-
-    const int v_head_size_id = idx % head_size;
-    const int v_seq_len_id = idx / head_size;
+    //! [bs, q head num, max_k_len, head size]
+    const int v_head_size_id = idx % head_size; //* 特征维度索引
+    const int v_seq_len_id = idx / head_size;   //* 序列位置索引
     // only fetch context_length(<max_seq_len) kv data from all kv cache of current seq
     if (v_seq_len_id < seq_len)
     {
-        const int64_t src_idx = batch_id * (head_num / q_head_per_kv) * head_size * max_seq_len + // B
+        const int64_t src_idx = batch_id * (head_num / q_head_per_kv) * head_size * max_seq_len + //! B  这里计算的是kv 的头数，使用q_head_num计算得到
                                 head_id / q_head_per_kv * head_size * max_seq_len +               // H
                                 v_seq_len_id * head_size +                                        // s
                                 v_head_size_id;                                                   // D/x

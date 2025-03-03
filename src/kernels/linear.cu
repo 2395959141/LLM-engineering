@@ -20,7 +20,11 @@ void launchLinearGemm(TensorWrapper<T> *input,
                       cublasWrapper *cublas_wrapper,
                       bool trans_a,
                       bool trans_b)
-{
+{   
+    //! y^T = w^T * x^T  因为这里要讲cublas默认的 col major 转换为 row major
+    //! 等价于 y = x * w
+    //! 进一步要符合 nn.linear中的定义，y = x * w^T
+    //! 所以这里要转置B， y^T = W * x^T <==>  y = x * W^T(也就和nn.linear的定义一致了)
     int Am = weight.shape[1];
     int Ak = weight.shape[0];
     int Bk = input->shape[1];
@@ -43,11 +47,11 @@ void launchLinearGemm(TensorWrapper<T> *input,
     {
         LLM_CHECK_WITH_INFO(Ak == Bk, "2nd dim of input MUST = 1st dim of weight");
     }
-    cublas_wrapper->Gemm(transA,
+    cublas_wrapper->Gemm(transA,  
                          transB,
-                         trans_b ? Ak : Am, // m
+                         trans_b ? Ak : Am, //! 这里根据约定的[m,n] [n,k] 来写
                          Cn,                // n, when load real weight, lmhead weight is same as pre embedding, which shape = [vocab, hidden], so here should transpose b
-                         Bk,
+                         Bk, 
                          weight.data,  // A, cur_input_len is for context decoder lmhead
                          lda,          // lda
                          input->data,  // B

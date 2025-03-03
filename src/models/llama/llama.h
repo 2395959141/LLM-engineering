@@ -28,10 +28,10 @@ private:
     int eos_token_id = 2;
     int layer_id = 0;
     int batch_size = 1; // can included in dyn params or not
-    int beamwidth = 1; // needed by beam search, when we dont adopt beam search, set 1 by default
+    int beamwidth = 1; //* needed by beam search, when we dont adopt beam search, set 1 by default
     int BlockPerBeam = 8; // needed by topK
-    int index = 0;
-    std::string prompt = ""; // self defined or not
+    int index = 0; //*当前生成的token数量
+    std::string prompt = ""; //* 自定义内置prompt
 
     Tokenizer tokenizer;
     LlamaWeight<T>* llama_weights;
@@ -40,11 +40,12 @@ private:
     // int max_context_token_num_ = 32; // 
 
     int K = 4; // K of topK sort
-    TensorWrapper<int>* step;
+    TensorWrapper<int>* step; //* selfdecoder中的输入
     TensorWrapper<T>* output_rmsnorm_weight;
     TensorWrapper<int>* layer;
     TensorWrapper<T>* context_decoder_input;
     TensorWrapper<T>* context_decoder_output;
+    //* 一些buffer
     TensorWrapper<T>* context_decoder_lmhead_input;
     TensorWrapper<T>* decoder_input;
     TensorWrapper<T>* decoder_output;
@@ -57,7 +58,7 @@ private:
     TensorWrapper<T>* all_k_cache;
     TensorWrapper<T>* all_v_cache;
     TensorWrapper<T>* unused_residual;
-    // used by sampling
+    //*  used by sampling
     IntDict int_params_of_sample;
     TensorWrapper<T>* probs;
     TensorWrapper<int>* token_ids;
@@ -68,7 +69,7 @@ private:
     TensorWrapper<int>* final_topk_id;
     TensorWrapper<T>* final_topk_val;
 
-    // pinned or not pinned CPU buffers
+    //* pinned or not pinned CPU buffers 处理完copy到GPU buffer
     int* h_input_ids_buf_{};
     int* h_input_length_buf_{};
     int* h_history_length_buf_{};
@@ -93,7 +94,8 @@ public:
           cublasWrapper* cublas_wrapper,
           BaseAllocator* allocator,
           cudaDeviceProp* cuda_device_prop):
-    BaseModel(stream, cublas_wrapper, allocator, cuda_device_prop),
+    BaseModel(stream, cublas_wrapper, allocator, cuda_device_prop), //* 每个模型都需要初始化的公共成员变量
+                                                                    //* 也可以多添加几个成员变量
     head_num(head_num),
     kv_head_num(kv_head_num),
     head_size(head_size),

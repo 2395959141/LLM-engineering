@@ -126,7 +126,7 @@ inline __device__ float2 GetRoPEres(float data, float data_rotate, const float2 
 // k; input vec [bs, kv num heads, 1, head size]
 // v; input vec [bs, num heads, 1, head size]
 // k_cache; output,[bs, max_seq_len, kv num heads, head size] from prompt phase
-// v_cache; output,[bs, max_seq_len, num heads, head size] from prompt phase
+// v_cache; output,[bs, max_seq_len, kv num heads, head size] from prompt phase
 template<typename T>
 __global__ void masked_MHA_kernel(T* q,
                     T* k,
@@ -144,15 +144,17 @@ __global__ void masked_MHA_kernel(T* q,
                     int   rotary_embedding_dim,
                     float rotary_embedding_base){// rsqrt(dh)
     int tid = threadIdx.x;
+    //! 计算一些索引，便于后续计算偏移
     int q_batch_id = blockIdx.x / head_num;
     int q_head_id = blockIdx.x % head_num;
     // (RussWong) note: below one line is wrong kv head id access way.
     //int kv_head_id = bid % kv_head_num;
-    int kv_head_id = q_head_id / (head_num / kv_head_num);
-    int kv_batch_id = q_batch_id;
+    int kv_head_id = q_head_id / (head_num / kv_head_num); //* kv cache和 head和 q不同，需要单独计算
+    int kv_batch_id = q_batch_id;       //* batch 维度上 kv和 q的batch id相同
     int batch_stride = head_num * head_size;
     int kv_batch_stride = kv_head_num * head_size;
     int head_stride = head_size;
+    //! 计算q,k,v的偏移量
     int q_offset = q_batch_id * batch_stride + q_head_id * head_stride + tid;
     int k_offset = kv_batch_id * kv_batch_stride + kv_head_id * head_stride + tid;
 
@@ -457,11 +459,22 @@ __global__ void masked_MHA_kernel(half* q,
 //     }
 }
 
+
+//! block and thread allocation
+//* 1 block -> head size，后续可改进为1 warp -> 1 head size or 1 block -> multi head size
+
+//! 1 grid -> bs * num heads
+//* q; input vec [bs, q num heads, 1, head size]
+//* k; input vec [bs, kv num heads, 1, head size]
+//* v; input vec [bs, num heads, 1, head size]
+
+//* k_cache; output,[layers, bs, kv num heads, max_seq_len, head size] from prompt phase
+//* v_cache; output,[layers, bs, kv num heads, max_seq_len, head size] from prompt phase
 template<typename T>
-void launchDecoderMaskedMHA(TensorWrapper<T>* qkv_buf,
-                            BaseWeight<T>& qkv,
-                            TensorWrapper<int>* layer_id,
-                            TensorWrapper<T>* k_cache,
+void launchDecoderMaskedMHA(TensorWrapper<T>* qkv_buf, //*  qkv_gemm的输出
+                            BaseWeight<T>& qkv,        //*  qkv_linear中的bias
+                            TensorWrapper<int>* layer_id, 
+                            TensorWrapper<T>* k_cache,  //* 当前step的kv cache
                             TensorWrapper<T>* v_cache,
                             TensorWrapper<bool>* finished,
                             TensorWrapper<int>* step,
@@ -469,7 +482,7 @@ void launchDecoderMaskedMHA(TensorWrapper<T>* qkv_buf,
                             LLaMAAttentionStaticParams& static_params){
     // (RussWong)note: we should carefully get shape from tensorwrapper, DON'T be GOT wrong value
     // the shape should be aligned with the CUDA kerne we wrote
-    const int batch_size = qkv_buf->shape[0];
+    const int batch_size = qkv_buf->shape[0]; //* [bs, qkv_head_num, head_size]
     const int qkv_head_num = qkv_buf->shape[1];
     const int kv_head_num = k_cache->shape[2];
     const int max_seq_len = k_cache->shape[3]; 
@@ -477,10 +490,11 @@ void launchDecoderMaskedMHA(TensorWrapper<T>* qkv_buf,
     const int head_size = qkv_buf->shape[2];
     const int cur_step = step->getVal();
     const int layer = layer_id->getVal();
-    const int layer_offset = layer * max_seq_len * batch_size * kv_head_num * head_size;
+    const int layer_offset = layer * max_seq_len * batch_size * kv_head_num * head_size; //! kernel中不需要考虑layer层面的offset，使用data + layer_offset指向当前层的kv cache
     size_t smem_size_bytes = head_size * sizeof(T) + cur_step * sizeof(float);
     T* qkv_data = qkv_buf->data;
-    //qkv_data.shape = [bs, 1, qkv_head_num,head_size]
+    //* qkv_data.shape = [bs, 1, qkv_head_num,head_size]
+    //! 从qkv_data中这一整块内存中，分别提取出 Q,K,V矩阵
     T* q = qkv_data;
     T* k = qkv_data + head_num * head_size;
     T* v = qkv_data + (head_num + kv_head_num) * head_size;

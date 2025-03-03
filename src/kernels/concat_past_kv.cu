@@ -15,26 +15,29 @@ __global__ void append_key_cache(T *k_dst, // [num layers, bs, kv head num, max_
                                  const int max_q_len,
                                  const int max_seq_len)
 {
+    //!  kv_cache 【层数，batch_size, 注意力头数，max_seq_len, head_size】
     int batch_id = blockIdx.y;
     int head_id = blockIdx.z;
-    int tid = threadIdx.x;
     int token_id = blockIdx.x;
+    int tid = threadIdx.x;
 
-    // 指针偏移到当前layer的k cache
+    //* 指针偏移到当前layer的k cache
     T *k_cache_dst = k_dst + layer_offset;
-    int cur_seq_len = cur_query_length[batch_id];
+    int cur_seq_len = cur_query_length[batch_id]; //* 第batchid个输入的长度
     int cumsum_seq_len = history_length[batch_id];
     // note: the if judge is a must, because the max_q_len is GTE than cur_seq_len.
-    if (token_id < cur_seq_len)
+    if (token_id < cur_seq_len) //! 不超过当前输入长度
     {
         // [batch, head num, max_q_len, head size] -> [batch, head num, maxseqlen[cumsum_seq_len:cumsum_seq_len + max q len], head size]
-        int src_offset = batch_id * kv_head_num * max_q_len * head_size + 
+        //! kv的偏移
+        int src_offset = batch_id * kv_head_num * max_q_len * head_size +  
                          head_id * max_q_len * head_size +
                          token_id * head_size + tid;
-        int dst_offset = batch_id * kv_head_num * max_seq_len * head_size +
-                         head_id * max_seq_len * head_size +
-                         (cumsum_seq_len + token_id) * head_size + tid;
-        k_cache_dst[dst_offset] = k_src[src_offset];
+        //! kv cache的偏移
+        int dst_offset = batch_id * kv_head_num * max_seq_len * head_size + //* 移动到batch起始位置
+                         head_id * max_seq_len * head_size +    //* 移动到head起始位置
+                         (cumsum_seq_len + token_id) * head_size + tid; //* 移动到token起始位置
+        k_cache_dst[dst_offset] = k_src[src_offset]; //! kv cache
     }
 }
 
@@ -76,8 +79,8 @@ template <typename T>
 void launchConcatKVCache(TensorWrapper<T> *k_src, // from qkv bias and rope {batch_size, kv_head_num, max_q_len, head_size}
                          TensorWrapper<T> *v_src,
                          TensorWrapper<int> *layer_id,         // layer offset = layer_id * batchxbeam * max_seq_len * kv_head_num * head_size
-                         TensorWrapper<int> *cur_query_length, // current epoch or local input length,[batchsize]
-                         TensorWrapper<int> *history_length,
+                         TensorWrapper<int> *cur_query_length, //* 维护了batchsize个当前输入长度
+                         TensorWrapper<int> *history_length, //* 维护了batchsize个历史上下文长度 [考虑多轮对话]
                          TensorWrapper<T> *k_dst, //{num_layers, batch_size, kv_head_num, max_seq_len, head_size}
                          TensorWrapper<T> *v_dst)
 {
@@ -86,7 +89,7 @@ void launchConcatKVCache(TensorWrapper<T> *k_src, // from qkv bias and rope {bat
     int kv_head_num = k_src->shape[1];
     int max_q_len = k_src->shape[2];
     int head_size = k_src->shape[3];
-    int blockSize = head_size;
+    int blockSize = head_size; //! 线程数分配为 head_size [因为在多头的情况下，head_size不会太大]
     int layer = layer_id->getVal();
     size_t layer_offset = layer * batch_size * kv_head_num * max_seq_len * head_size;
     dim3 grid(max_q_len, batch_size, kv_head_num);
